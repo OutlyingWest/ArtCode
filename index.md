@@ -20,6 +20,18 @@ sections:
             src: exercise1/basic/screencast.mp4
           - type: code
             file: exercise1/basic/ex1_0.js
+      - title: Shapes and grid
+        blocks:
+          - type: gallery
+            items:
+              - src: exercise1/shapes/order.svg
+                caption: grid
+              - src: exercise1/shapes/order_unorder.svg
+                caption: grid + disorder
+              - src: exercise1/shapes/rule_broken.svg
+                caption: rule based grid + algorithmic disorder
+          - type: code
+            file: exercise1/shapes/ex1_0.js
 ---
 
 <!-- SECTION: Final project -->
