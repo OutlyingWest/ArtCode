@@ -1,16 +1,22 @@
-const NUM_CUBES = 9;
-const CUBE_SIZE = 60;
-const SPACING = 88;
-const CAM_RADIUS = 700;
-const CAM_HEIGHT = -280;
+const NUM_CUBES = 5;
+const CUBE_SIZE = 80;
+const SPACING = 160;
+const CAM_RADIUS = 400;
+const CAM_HEIGHT = -200;
 
 const ROLL_SPEED = 0.08;
-const PAUSE_FRAMES = 15;
+
+// Bounce physics: damped spring rotation around the landing edge
+// Higher BOUNCE_SPRING  → faster oscillation (stiffer surface)
+// Lower  BOUNCE_DAMPING → more bounces (more elastic)
+const BOUNCE_SPRING  = 0.25;   // angular spring constant (rad/frame²)
+const BOUNCE_DAMPING = 0.88;   // velocity multiplier per frame (< 1 = energy loss)
 
 let completedRolls = 0;
-let rollAngle = 0;      // 0..PI/2 during rolling, 0 during pause
-let phase = 'rolling';
-let pauseTimer = 0;
+let rollAngle   = 0;   // 0..PI/2 during 'rolling'
+let bounceDelta = 0;   // angular deviation from rest during 'bouncing'
+let bounceVel   = 0;   // angular velocity of bounce
+let phase       = 'rolling'; // 'rolling' | 'bouncing'
 
 function setup() {
   createCanvas(854, 480, WEBGL);
@@ -25,68 +31,76 @@ function draw() {
   const s = CUBE_SIZE;
   const baseOffset = ((NUM_CUBES - 1) * SPACING) / 2;
 
-  // How far the belt has scrolled (pixels), grows continuously
-  let beltScroll = completedRolls * s + (rollAngle / (PI / 2)) * s;
-
+  // Belt scrolls during rolling only; stops while cubes rock
+  let beltScroll = completedRolls * s + (phase === 'rolling' ? rollAngle / (PI / 2) * s : 0);
   drawBelt(beltScroll);
 
+  // Explicit pivot transform: rotate around the corner touching the belt,
+  // not around the cube center.  beltShift tracks how far the pivot has
+  // drifted left in world-X as the cube rolls (0 during bounce = belt stopped).
+  let a         = (phase === 'rolling') ? rollAngle   : bounceDelta;
+  let beltShift = (phase === 'rolling') ? rollAngle / (PI / 2) * s : 0;
+
   for (let i = 0; i < NUM_CUBES; i++) {
-    let cubeX = i * SPACING - baseOffset;
-
-    // Y: cube center rises during each 90° roll (real rolling geometry)
-    // derived from rotating around a fixed bottom edge in belt-frame coords
-    let yOff = (s / 2) * (1 - sin(rollAngle) - cos(rollAngle));
-
-    // Total rotation accumulates: 90° per completed roll + current partial roll
-    let totalRot = completedRolls * PI / 2 + rollAngle;
+    let cubeX  = i * SPACING - baseOffset;
+    // Rolling: pivot is the leading bottom edge, tracks with belt scroll.
+    // Bouncing: pivot is the trailing edge (the one the cube just rolled around),
+    //           always at cubeX − s/2 while the belt is stopped.
+    let pivotX = (phase === 'rolling') ? cubeX + s / 2 - beltShift : cubeX - s / 2;
+    let t2x    = (phase === 'rolling') ? -s / 2 : s / 2;
 
     push();
-    translate(cubeX, yOff, 0);
-    rotateZ(totalRot);
+    translate(pivotX, s / 2, 0);
+    rotateZ(a);
+    translate(t2x, -s / 2, 0);
+    rotateZ(completedRolls * PI / 2);
     wireCube(s);
     pop();
   }
 
+  // ── state machine ──────────────────────────────────────────────
   if (phase === 'rolling') {
     rollAngle += ROLL_SPEED;
     if (rollAngle >= PI / 2) {
       rollAngle = 0;
       completedRolls++;
-      phase = 'paused';
-      pauseTimer = PAUSE_FRAMES;
+      bounceDelta = 0;
+      bounceVel   = ROLL_SPEED;  // inherit rolling angular velocity
+      phase       = 'bouncing';
     }
-  } else {
-    if (--pauseTimer <= 0) {
-      phase = 'rolling';
+  } else { // bouncing: damped spring around the landing edge
+    bounceVel -= BOUNCE_SPRING * bounceDelta;  // spring restores to rest
+    bounceVel *= BOUNCE_DAMPING;               // energy dissipation
+    bounceDelta += bounceVel;
+    if (abs(bounceDelta) < 0.002 && abs(bounceVel) < 0.002) {
+      bounceDelta = 0;
+      bounceVel   = 0;
+      phase       = 'rolling';
     }
   }
 }
 
 function drawBelt(scrollOffset) {
   const s = CUBE_SIZE;
-  const beltY = s / 2;
-  const beltHalfX = 520;
-  const beltHalfZ = s * 0.72;
+  const beltY      = s / 2;
+  const beltHalfX  = 520;
+  const beltHalfZ  = s * 0.72;
   const slatSpacing = 22;
 
   stroke(85);
   strokeWeight(0.8);
   noFill();
 
-  // Long edges of the belt top surface
   line(-beltHalfX, beltY, -beltHalfZ,  beltHalfX, beltY, -beltHalfZ);
   line(-beltHalfX, beltY,  beltHalfZ,  beltHalfX, beltY,  beltHalfZ);
+  line(-beltHalfX, beltY, -beltHalfZ, -beltHalfX, beltY,  beltHalfZ);
+  line( beltHalfX, beltY, -beltHalfZ,  beltHalfX, beltY,  beltHalfZ);
 
-  // Left/right end caps
-  line(-beltHalfX, beltY, -beltHalfZ, -beltHalfX, beltY, beltHalfZ);
-  line( beltHalfX, beltY, -beltHalfZ,  beltHalfX, beltY, beltHalfZ);
-
-  // Scrolling slats (lines along Z, scrolling left)
-  let phase = scrollOffset % slatSpacing;
+  let off    = scrollOffset % slatSpacing;
   let startK = floor(-beltHalfX / slatSpacing) - 1;
   let endK   = ceil( beltHalfX / slatSpacing) + 1;
   for (let k = startK; k <= endK; k++) {
-    let sx = k * slatSpacing - phase;
+    let sx = k * slatSpacing - off;
     if (sx >= -beltHalfX && sx <= beltHalfX) {
       line(sx, beltY, -beltHalfZ, sx, beltY, beltHalfZ);
     }
