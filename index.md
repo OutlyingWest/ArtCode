@@ -62,6 +62,25 @@ sections:
                 caption:  xAttractionShift = 54
               - src: exercise2/selecting/bentFieldSingularity3.svg
                 caption: xAttractionShift = 55
+  - title: "Exercise 4 - Animation and color"
+    subsections:
+      - title: Loops
+        blocks:
+          - type: gallery
+            items:
+              - src: exercise4/original-cubes.gif
+                caption: original cubes
+              - src: exercise4/sparkles.gif
+                caption: sparkles
+              - src: exercise4/swirl.gif
+                caption: swirl
+      - title: own loop
+        blocks:
+          - type: figure
+            src: exercise4/my-cubes.gif
+            caption: original cubes
+          - type: code
+            file: exercise4/sketch.js
 ---
 
 <!-- SECTION: Final project -->
