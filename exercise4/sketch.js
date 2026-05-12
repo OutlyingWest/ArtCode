@@ -334,8 +334,8 @@ function drawBelt(scrollOffset) {
   const s = CUBE_SIZE;
   const beltY      = s / 2;
   const beltHalfX  = 520;
+  const cellSize   = s;
   const beltHalfZ  = s * 0.72;
-  const slatSpacing = 22;
 
   stroke(85);
   strokeWeight(0.8);
@@ -346,11 +346,13 @@ function drawBelt(scrollOffset) {
   line(-beltHalfX, beltY, -beltHalfZ, -beltHalfX, beltY,  beltHalfZ);
   line( beltHalfX, beltY, -beltHalfZ,  beltHalfX, beltY,  beltHalfZ);
 
-  let off    = scrollOffset % slatSpacing;
-  let startK = floor(-beltHalfX / slatSpacing) - 1;
-  let endK   = ceil( beltHalfX / slatSpacing) + 1;
+  // Lines are one cube-size apart and offset by half a cell, so each settled
+  // cube sits centered between two transverse lines after every roll.
+  let off    = scrollOffset % cellSize;
+  let startK = floor(-beltHalfX / cellSize) - 1;
+  let endK   = ceil( beltHalfX / cellSize) + 1;
   for (let k = startK; k <= endK; k++) {
-    let sx = k * slatSpacing - off;
+    let sx = k * cellSize + cellSize / 2 - off;
     if (sx >= -beltHalfX && sx <= beltHalfX) {
       line(sx, beltY, -beltHalfZ, sx, beltY, beltHalfZ);
     }
