@@ -7,6 +7,7 @@ const CAM_HEIGHT = -200;
 const ROLL_SPEED = 0.08;
 const BELT_TURN_AXIS = 'z';      // 'z' = screen plane, 'y' = horizontal turn
 const BELT_TURN_DIRECTION = -1;  // -1 = clockwise, 1 = counter-clockwise
+const PATTERN_SIZE = 18;
 
 // Bounce physics: one-sided contact with the belt.
 // Gravity pulls the cube back into the belt; restitution reflects impact
@@ -357,6 +358,19 @@ function drawBelt(scrollOffset) {
       line(sx, beltY, -beltHalfZ, sx, beltY, beltHalfZ);
     }
   }
+
+  stroke(145);
+  strokeWeight(1);
+  for (let k = startK; k <= endK; k++) {
+    let cellCenterX = k * cellSize - off;
+    if (cellCenterX >= -beltHalfX && cellCenterX <= beltHalfX) {
+      push();
+      translate(cellCenterX, beltY, 0);
+      rotateX(PI / 2);
+      cornerSquarePattern(PATTERN_SIZE);
+      pop();
+    }
+  }
 }
 
 function wireCube(s) {
@@ -389,4 +403,64 @@ function wireCube(s) {
     sphere(3.5);
     pop();
   }
+
+  drawCubeFacePatterns(s);
+}
+
+function drawCubeFacePatterns(s) {
+  let h = s / 2;
+
+  stroke(255);
+  strokeWeight(1);
+
+  push();
+  translate(0, 0, h);
+  cornerSquarePattern(PATTERN_SIZE);
+  pop();
+
+  push();
+  translate(0, 0, -h);
+  cornerSquarePattern(PATTERN_SIZE);
+  pop();
+
+  push();
+  translate(h, 0, 0);
+  rotateY(PI / 2);
+  cornerSquarePattern(PATTERN_SIZE);
+  pop();
+
+  push();
+  translate(-h, 0, 0);
+  rotateY(PI / 2);
+  cornerSquarePattern(PATTERN_SIZE);
+  pop();
+
+  push();
+  translate(0, h, 0);
+  rotateX(PI / 2);
+  cornerSquarePattern(PATTERN_SIZE);
+  pop();
+
+  push();
+  translate(0, -h, 0);
+  rotateX(PI / 2);
+  cornerSquarePattern(PATTERN_SIZE);
+  pop();
+}
+
+function cornerSquarePattern(size) {
+  let h = size / 2;
+  let c = size * 0.32;
+
+  line(-h, -h, 0, -h + c, -h, 0);
+  line(-h, -h, 0, -h, -h + c, 0);
+
+  line(h, -h, 0, h - c, -h, 0);
+  line(h, -h, 0, h, -h + c, 0);
+
+  line(h, h, 0, h - c, h, 0);
+  line(h, h, 0, h, h - c, 0);
+
+  line(-h, h, 0, -h + c, h, 0);
+  line(-h, h, 0, -h, h - c, 0);
 }
