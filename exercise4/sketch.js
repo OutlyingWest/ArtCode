@@ -4,53 +4,45 @@ const SPACING = 88;
 const CAM_RADIUS = 700;
 const CAM_HEIGHT = -280;
 
-// Roll: PI/2 over ~20 frames at 30fps (~0.65s), pause 15 frames (~0.5s)
 const ROLL_SPEED = 0.08;
 const PAUSE_FRAMES = 15;
 
 let completedRolls = 0;
-let rollAngle = 0;
+let rollAngle = 0;      // 0..PI/2 during rolling, 0 during pause
 let phase = 'rolling';
 let pauseTimer = 0;
-let pivotX = []; // fixed X pivot for each cube during current roll
-
-function computePivots() {
-  const s = CUBE_SIZE;
-  const beltWidth = NUM_CUBES * SPACING;
-  const halfBelt = beltWidth / 2;
-  const baseOffset = ((NUM_CUBES - 1) * SPACING) / 2;
-  pivotX = [];
-  for (let i = 0; i < NUM_CUBES; i++) {
-    // Raw X after completedRolls, then wrap within belt period
-    let rawX = i * SPACING - baseOffset + completedRolls * s;
-    let wrappedX = ((rawX + halfBelt) % beltWidth + beltWidth) % beltWidth - halfBelt;
-    // Pivot is at the cube's right bottom edge
-    pivotX[i] = wrappedX + s / 2;
-  }
-}
 
 function setup() {
   createCanvas(854, 480, WEBGL);
   frameRate(30);
   perspective(PI / 3, width / height, 0.1, 5000);
-  computePivots();
 }
 
 function draw() {
   background(0);
-
-  // Fixed camera — no orbital rotation
   camera(0, CAM_HEIGHT, CAM_RADIUS, 0, 0, 0, 0, 1, 0);
 
   const s = CUBE_SIZE;
-  const floorY = s / 2; // cube centers sit at y=0, floor at y=s/2
+  const baseOffset = ((NUM_CUBES - 1) * SPACING) / 2;
+
+  // How far the belt has scrolled (pixels), grows continuously
+  let beltScroll = completedRolls * s + (rollAngle / (PI / 2)) * s;
+
+  drawBelt(beltScroll);
 
   for (let i = 0; i < NUM_CUBES; i++) {
+    let cubeX = i * SPACING - baseOffset;
+
+    // Y: cube center rises during each 90° roll (real rolling geometry)
+    // derived from rotating around a fixed bottom edge in belt-frame coords
+    let yOff = (s / 2) * (1 - sin(rollAngle) - cos(rollAngle));
+
+    // Total rotation accumulates: 90° per completed roll + current partial roll
+    let totalRot = completedRolls * PI / 2 + rollAngle;
+
     push();
-    // Move to pivot (bottom-right edge of cube at rest), rotate, draw
-    translate(pivotX[i], floorY, 0);
-    rotateZ(rollAngle);
-    translate(-s / 2, -s / 2, 0);
+    translate(cubeX, yOff, 0);
+    rotateZ(totalRot);
     wireCube(s);
     pop();
   }
@@ -60,13 +52,43 @@ function draw() {
     if (rollAngle >= PI / 2) {
       rollAngle = 0;
       completedRolls++;
-      computePivots();   // recompute pivots for the next roll
       phase = 'paused';
       pauseTimer = PAUSE_FRAMES;
     }
   } else {
     if (--pauseTimer <= 0) {
       phase = 'rolling';
+    }
+  }
+}
+
+function drawBelt(scrollOffset) {
+  const s = CUBE_SIZE;
+  const beltY = s / 2;
+  const beltHalfX = 520;
+  const beltHalfZ = s * 0.72;
+  const slatSpacing = 22;
+
+  stroke(85);
+  strokeWeight(0.8);
+  noFill();
+
+  // Long edges of the belt top surface
+  line(-beltHalfX, beltY, -beltHalfZ,  beltHalfX, beltY, -beltHalfZ);
+  line(-beltHalfX, beltY,  beltHalfZ,  beltHalfX, beltY,  beltHalfZ);
+
+  // Left/right end caps
+  line(-beltHalfX, beltY, -beltHalfZ, -beltHalfX, beltY, beltHalfZ);
+  line( beltHalfX, beltY, -beltHalfZ,  beltHalfX, beltY, beltHalfZ);
+
+  // Scrolling slats (lines along Z, scrolling left)
+  let phase = scrollOffset % slatSpacing;
+  let startK = floor(-beltHalfX / slatSpacing) - 1;
+  let endK   = ceil( beltHalfX / slatSpacing) + 1;
+  for (let k = startK; k <= endK; k++) {
+    let sx = k * slatSpacing - phase;
+    if (sx >= -beltHalfX && sx <= beltHalfX) {
+      line(sx, beltY, -beltHalfZ, sx, beltY, beltHalfZ);
     }
   }
 }
