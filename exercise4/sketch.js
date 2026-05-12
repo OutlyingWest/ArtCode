@@ -6,11 +6,12 @@ const CAM_HEIGHT = -200;
 
 const ROLL_SPEED = 0.08;
 
-// Bounce physics: damped spring rotation around the landing edge
-// Higher BOUNCE_SPRING  → faster oscillation (stiffer surface)
-// Lower  BOUNCE_DAMPING → more bounces (more elastic)
-const BOUNCE_SPRING  = 0.25;   // angular spring constant (rad/frame²)
-const BOUNCE_DAMPING = 0.88;   // velocity multiplier per frame (< 1 = energy loss)
+// Bounce physics: one-sided contact with the belt.
+// Gravity pulls the cube back into the belt; restitution reflects impact
+// velocity with energy loss, so the cube bounces instead of springing.
+const BOUNCE_GRAVITY     = 0.006;  // angular acceleration back toward the belt (rad/frame^2)
+const BOUNCE_RESTITUTION = 0.62;   // 0..1; lower = less elastic collision
+const BOUNCE_STOP_SPEED  = 0.006;  // impact speed below this settles the cube
 
 let completedRolls = 0;
 let rollAngle   = 0;   // 0..PI/2 during 'rolling'
@@ -65,17 +66,25 @@ function draw() {
       rollAngle = 0;
       completedRolls++;
       bounceDelta = 0;
-      bounceVel   = ROLL_SPEED;  // inherit rolling angular velocity
+      // The roll ends by hitting the belt. Reflect that impact immediately
+      // so the next motion goes upward, away from the surface.
+      bounceVel   = -ROLL_SPEED * BOUNCE_RESTITUTION;
       phase       = 'bouncing';
     }
-  } else { // bouncing: damped spring around the landing edge
-    bounceVel -= BOUNCE_SPRING * bounceDelta;  // spring restores to rest
-    bounceVel *= BOUNCE_DAMPING;               // energy dissipation
+  } else { // bouncing: ballistic rotation with inelastic impacts
+    bounceVel += BOUNCE_GRAVITY;
     bounceDelta += bounceVel;
-    if (abs(bounceDelta) < 0.002 && abs(bounceVel) < 0.002) {
+
+    // bounceDelta must stay <= 0. Positive values rotate the cube through the
+    // belt, so contact clamps the angle and reflects velocity with energy loss.
+    if (bounceDelta >= 0) {
       bounceDelta = 0;
-      bounceVel   = 0;
-      phase       = 'rolling';
+      if (bounceVel < BOUNCE_STOP_SPEED) {
+        bounceVel = 0;
+        phase     = 'rolling';
+      } else {
+        bounceVel = -bounceVel * BOUNCE_RESTITUTION;
+      }
     }
   }
 }
