@@ -5,6 +5,8 @@ const CAM_RADIUS = 400;
 const CAM_HEIGHT = -200;
 
 const ROLL_SPEED = 0.08;
+const BELT_TURN_AXIS = 'z';      // 'z' = screen plane, 'y' = horizontal turn
+const BELT_TURN_DIRECTION = -1;  // -1 = clockwise, 1 = counter-clockwise
 
 // Bounce physics: one-sided contact with the belt.
 // Gravity pulls the cube back into the belt; restitution reflects impact
@@ -15,39 +17,50 @@ const BOUNCE_STOP_SPEED  = 0.006;  // impact speed below this settles the cube
 
 const PHASE_ROLLING = 'rolling';
 const PHASE_BOUNCING = 'bouncing';
+const PHASE_BELT_TURNING = 'belt_turning';
+const PHASE_BELT_BOUNCING = 'belt_bouncing';
 
-let completedRolls = 0;
+let cubeRolls = Array(NUM_CUBES).fill(0);
+let beltTravelSteps = 0;
+let beltQuarterTurns = 0;
 let rollAngle   = 0;   // 0..PI/2 during 'rolling'
 let bounceDelta = 0;   // angular deviation from rest during 'bouncing'
 let bounceVel   = 0;   // angular velocity of bounce
+let beltTurnAngle = 0;
+let beltTurnBounceDelta = 0;
+let beltTurnBounceVel = 0;
 let phase       = PHASE_ROLLING;
 
 const PHASES = {
   [PHASE_ROLLING]: {
+    beltAngle() {
+      return settledBeltAngle();
+    },
+
     beltTravel(s) {
       return rollProgress() * s;
     },
 
     cubePose(s, cubeX) {
-      let beltShift = rollProgress() * s;
-      return {
-        angle: rollAngle,
-        pivotX: cubeX + s / 2 - beltShift,
-        cubeOffsetX: -s / 2
-      };
+      return rollingPose(s, cubeX, rollAngle);
     },
 
     update() {
       rollAngle += ROLL_SPEED;
       if (rollAngle >= PI / 2) {
         rollAngle = 0;
-        completedRolls++;
+        advanceCubeRolls();
+        beltTravelSteps++;
         transitionTo(PHASE_BOUNCING, { impactSpeed: ROLL_SPEED });
       }
     }
   },
 
   [PHASE_BOUNCING]: {
+    beltAngle() {
+      return settledBeltAngle();
+    },
+
     enter({ impactSpeed }) {
       bounceDelta = 0;
       // The roll ends by hitting the belt. Reflect that impact immediately
@@ -60,11 +73,7 @@ const PHASES = {
     },
 
     cubePose(s, cubeX) {
-      return {
-        angle: bounceDelta,
-        pivotX: cubeX - s / 2,
-        cubeOffsetX: s / 2
-      };
+      return bouncePose(s, cubeX, bounceDelta);
     },
 
     update() {
@@ -77,9 +86,80 @@ const PHASES = {
         bounceDelta = 0;
         if (bounceVel < BOUNCE_STOP_SPEED) {
           bounceVel = 0;
-          transitionTo(PHASE_ROLLING);
+          transitionTo(PHASE_BELT_TURNING);
         } else {
           bounceVel = -bounceVel * BOUNCE_RESTITUTION;
+        }
+      }
+    }
+  },
+
+  [PHASE_BELT_TURNING]: {
+    enter() {
+      beltTurnAngle = 0;
+      rollAngle = 0;
+    },
+
+    beltAngle() {
+      return settledBeltAngle() + beltTurnAngle;
+    },
+
+    beltTravel(s) {
+      return rollProgress() * s;
+    },
+
+    cubePose(s, cubeX, index) {
+      if (index === centerCubeIndex()) {
+        return restPose(s, cubeX);
+      }
+      return rollingPose(s, cubeX, rollAngle);
+    },
+
+    update() {
+      rollAngle += ROLL_SPEED;
+      beltTurnAngle += BELT_TURN_DIRECTION * ROLL_SPEED;
+
+      if (abs(beltTurnAngle) >= PI / 2) {
+        rollAngle = 0;
+        beltTurnAngle = beltTurnTarget();
+        advanceCubeRollsExcept(centerCubeIndex());
+        beltTravelSteps++;
+        transitionTo(PHASE_BELT_BOUNCING, { impactSpeed: ROLL_SPEED });
+      }
+    }
+  },
+
+  [PHASE_BELT_BOUNCING]: {
+    enter({ impactSpeed }) {
+      beltTurnBounceDelta = 0;
+      beltTurnBounceVel = -BELT_TURN_DIRECTION * impactSpeed * BOUNCE_RESTITUTION;
+    },
+
+    beltAngle() {
+      return settledBeltAngle() + beltTurnTarget() + beltTurnBounceDelta;
+    },
+
+    beltTravel() {
+      return 0;
+    },
+
+    cubePose(s, cubeX) {
+      return restPose(s, cubeX);
+    },
+
+    update() {
+      beltTurnBounceVel += BELT_TURN_DIRECTION * BOUNCE_GRAVITY;
+      beltTurnBounceDelta += beltTurnBounceVel;
+
+      if (BELT_TURN_DIRECTION * beltTurnBounceDelta >= 0) {
+        beltTurnBounceDelta = 0;
+        if (abs(beltTurnBounceVel) < BOUNCE_STOP_SPEED) {
+          beltTurnBounceVel = 0;
+          beltTurnAngle = 0;
+          beltQuarterTurns = (beltQuarterTurns + 1) % 4;
+          transitionTo(PHASE_ROLLING);
+        } else {
+          beltTurnBounceVel = -beltTurnBounceVel * BOUNCE_RESTITUTION;
         }
       }
     }
@@ -98,26 +178,31 @@ function draw() {
   const s = CUBE_SIZE;
   const baseOffset = ((NUM_CUBES - 1) * SPACING) / 2;
   const currentPhase = getCurrentPhase();
-  const centerCubeX = cubeXAt(floor(NUM_CUBES / 2), baseOffset);
-  const centerPose = currentPhase.cubePose(s, centerCubeX);
+  const centerIndex = centerCubeIndex();
+  const centerCubeX = cubeXAt(centerIndex, baseOffset);
+  const centerPose = currentPhase.cubePose(s, centerCubeX, centerIndex);
+  const beltAngle = currentPhase.beltAngle();
 
-  attachCameraTo(cubeCenterFromPose(s, centerPose));
+  attachCameraTo(beltToWorld(cubeCenterFromPose(s, centerPose), beltAngle));
 
-  let beltScroll = completedRolls * s + currentPhase.beltTravel(s);
+  let beltScroll = beltTravelSteps * s + currentPhase.beltTravel(s);
+  push();
+  rotateBelt(beltAngle);
   drawBelt(beltScroll);
 
   for (let i = 0; i < NUM_CUBES; i++) {
     let cubeX  = cubeXAt(i, baseOffset);
-    let pose = currentPhase.cubePose(s, cubeX);
+    let pose = currentPhase.cubePose(s, cubeX, i);
 
     push();
     translate(pose.pivotX, s / 2, 0);
     rotateZ(pose.angle);
     translate(pose.cubeOffsetX, -s / 2, 0);
-    rotateZ(completedRolls * PI / 2);
+    rotateZ(cubeRolls[i] * PI / 2);
     wireCube(s);
     pop();
   }
+  pop();
 
   currentPhase.update();
 }
@@ -140,6 +225,30 @@ function attachCameraTo(anchor) {
   );
 }
 
+function beltToWorld(point, beltAngle) {
+  if (BELT_TURN_AXIS === 'y') {
+    return {
+      x: point.x * cos(beltAngle) + point.z * sin(beltAngle),
+      y: point.y,
+      z: -point.x * sin(beltAngle) + point.z * cos(beltAngle)
+    };
+  }
+
+  return {
+    x: point.x * cos(beltAngle) - point.y * sin(beltAngle),
+    y: point.x * sin(beltAngle) + point.y * cos(beltAngle),
+    z: point.z
+  };
+}
+
+function rotateBelt(beltAngle) {
+  if (BELT_TURN_AXIS === 'y') {
+    rotateY(beltAngle);
+  } else {
+    rotateZ(beltAngle);
+  }
+}
+
 function cubeCenterFromPose(s, pose) {
   let localX = pose.cubeOffsetX;
   let localY = -s / 2;
@@ -150,8 +259,55 @@ function cubeCenterFromPose(s, pose) {
   };
 }
 
+function rollingPose(s, cubeX, angle) {
+  let beltShift = angle / (PI / 2) * s;
+  return {
+    angle,
+    pivotX: cubeX + s / 2 - beltShift,
+    cubeOffsetX: -s / 2
+  };
+}
+
+function bouncePose(s, cubeX, angle) {
+  return {
+    angle,
+    pivotX: cubeX - s / 2,
+    cubeOffsetX: s / 2
+  };
+}
+
+function restPose(s, cubeX) {
+  return bouncePose(s, cubeX, 0);
+}
+
 function rollProgress() {
   return rollAngle / (PI / 2);
+}
+
+function settledBeltAngle() {
+  return beltQuarterTurns * beltTurnTarget();
+}
+
+function beltTurnTarget() {
+  return BELT_TURN_DIRECTION * PI / 2;
+}
+
+function centerCubeIndex() {
+  return Math.floor(NUM_CUBES / 2);
+}
+
+function advanceCubeRolls() {
+  for (let i = 0; i < cubeRolls.length; i++) {
+    cubeRolls[i]++;
+  }
+}
+
+function advanceCubeRollsExcept(excludedIndex) {
+  for (let i = 0; i < cubeRolls.length; i++) {
+    if (i !== excludedIndex) {
+      cubeRolls[i]++;
+    }
+  }
 }
 
 function getCurrentPhase() {
