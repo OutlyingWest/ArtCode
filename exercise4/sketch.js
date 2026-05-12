@@ -94,17 +94,20 @@ function setup() {
 
 function draw() {
   background(0);
-  camera(0, CAM_HEIGHT, CAM_RADIUS, 0, 0, 0, 0, 1, 0);
 
   const s = CUBE_SIZE;
   const baseOffset = ((NUM_CUBES - 1) * SPACING) / 2;
   const currentPhase = getCurrentPhase();
+  const centerCubeX = cubeXAt(floor(NUM_CUBES / 2), baseOffset);
+  const centerPose = currentPhase.cubePose(s, centerCubeX);
+
+  attachCameraTo(cubeCenterFromPose(s, centerPose));
 
   let beltScroll = completedRolls * s + currentPhase.beltTravel(s);
   drawBelt(beltScroll);
 
   for (let i = 0; i < NUM_CUBES; i++) {
-    let cubeX  = i * SPACING - baseOffset;
+    let cubeX  = cubeXAt(i, baseOffset);
     let pose = currentPhase.cubePose(s, cubeX);
 
     push();
@@ -117,6 +120,34 @@ function draw() {
   }
 
   currentPhase.update();
+}
+
+function cubeXAt(index, baseOffset) {
+  return index * SPACING - baseOffset;
+}
+
+function attachCameraTo(anchor) {
+  camera(
+    anchor.x,
+    anchor.y + CAM_HEIGHT,
+    anchor.z + CAM_RADIUS,
+    anchor.x,
+    anchor.y,
+    anchor.z,
+    0,
+    1,
+    0
+  );
+}
+
+function cubeCenterFromPose(s, pose) {
+  let localX = pose.cubeOffsetX;
+  let localY = -s / 2;
+  return {
+    x: pose.pivotX + localX * cos(pose.angle) - localY * sin(pose.angle),
+    y: s / 2 + localX * sin(pose.angle) + localY * cos(pose.angle),
+    z: 0
+  };
 }
 
 function rollProgress() {
