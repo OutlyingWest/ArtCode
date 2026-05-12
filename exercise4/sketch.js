@@ -13,11 +13,78 @@ const BOUNCE_GRAVITY     = 0.006;  // angular acceleration back toward the belt 
 const BOUNCE_RESTITUTION = 0.62;   // 0..1; lower = less elastic collision
 const BOUNCE_STOP_SPEED  = 0.006;  // impact speed below this settles the cube
 
+const PHASE_ROLLING = 'rolling';
+const PHASE_BOUNCING = 'bouncing';
+
 let completedRolls = 0;
 let rollAngle   = 0;   // 0..PI/2 during 'rolling'
 let bounceDelta = 0;   // angular deviation from rest during 'bouncing'
 let bounceVel   = 0;   // angular velocity of bounce
-let phase       = 'rolling'; // 'rolling' | 'bouncing'
+let phase       = PHASE_ROLLING;
+
+const PHASES = {
+  [PHASE_ROLLING]: {
+    beltTravel(s) {
+      return rollProgress() * s;
+    },
+
+    cubePose(s, cubeX) {
+      let beltShift = rollProgress() * s;
+      return {
+        angle: rollAngle,
+        pivotX: cubeX + s / 2 - beltShift,
+        cubeOffsetX: -s / 2
+      };
+    },
+
+    update() {
+      rollAngle += ROLL_SPEED;
+      if (rollAngle >= PI / 2) {
+        rollAngle = 0;
+        completedRolls++;
+        transitionTo(PHASE_BOUNCING, { impactSpeed: ROLL_SPEED });
+      }
+    }
+  },
+
+  [PHASE_BOUNCING]: {
+    enter({ impactSpeed }) {
+      bounceDelta = 0;
+      // The roll ends by hitting the belt. Reflect that impact immediately
+      // so the next motion goes upward, away from the surface.
+      bounceVel = -impactSpeed * BOUNCE_RESTITUTION;
+    },
+
+    beltTravel() {
+      return 0;
+    },
+
+    cubePose(s, cubeX) {
+      return {
+        angle: bounceDelta,
+        pivotX: cubeX - s / 2,
+        cubeOffsetX: s / 2
+      };
+    },
+
+    update() {
+      bounceVel += BOUNCE_GRAVITY;
+      bounceDelta += bounceVel;
+
+      // bounceDelta must stay <= 0. Positive values rotate the cube through the
+      // belt, so contact clamps the angle and reflects velocity with energy loss.
+      if (bounceDelta >= 0) {
+        bounceDelta = 0;
+        if (bounceVel < BOUNCE_STOP_SPEED) {
+          bounceVel = 0;
+          transitionTo(PHASE_ROLLING);
+        } else {
+          bounceVel = -bounceVel * BOUNCE_RESTITUTION;
+        }
+      }
+    }
+  }
+};
 
 function setup() {
   createCanvas(854, 480, WEBGL);
@@ -31,61 +98,48 @@ function draw() {
 
   const s = CUBE_SIZE;
   const baseOffset = ((NUM_CUBES - 1) * SPACING) / 2;
+  const currentPhase = getCurrentPhase();
 
-  // Belt scrolls during rolling only; stops while cubes rock
-  let beltScroll = completedRolls * s + (phase === 'rolling' ? rollAngle / (PI / 2) * s : 0);
+  let beltScroll = completedRolls * s + currentPhase.beltTravel(s);
   drawBelt(beltScroll);
-
-  // Explicit pivot transform: rotate around the corner touching the belt,
-  // not around the cube center.  beltShift tracks how far the pivot has
-  // drifted left in world-X as the cube rolls (0 during bounce = belt stopped).
-  let a         = (phase === 'rolling') ? rollAngle   : bounceDelta;
-  let beltShift = (phase === 'rolling') ? rollAngle / (PI / 2) * s : 0;
 
   for (let i = 0; i < NUM_CUBES; i++) {
     let cubeX  = i * SPACING - baseOffset;
-    // Rolling: pivot is the leading bottom edge, tracks with belt scroll.
-    // Bouncing: pivot is the trailing edge (the one the cube just rolled around),
-    //           always at cubeX − s/2 while the belt is stopped.
-    let pivotX = (phase === 'rolling') ? cubeX + s / 2 - beltShift : cubeX - s / 2;
-    let t2x    = (phase === 'rolling') ? -s / 2 : s / 2;
+    let pose = currentPhase.cubePose(s, cubeX);
 
     push();
-    translate(pivotX, s / 2, 0);
-    rotateZ(a);
-    translate(t2x, -s / 2, 0);
+    translate(pose.pivotX, s / 2, 0);
+    rotateZ(pose.angle);
+    translate(pose.cubeOffsetX, -s / 2, 0);
     rotateZ(completedRolls * PI / 2);
     wireCube(s);
     pop();
   }
 
-  // ── state machine ──────────────────────────────────────────────
-  if (phase === 'rolling') {
-    rollAngle += ROLL_SPEED;
-    if (rollAngle >= PI / 2) {
-      rollAngle = 0;
-      completedRolls++;
-      bounceDelta = 0;
-      // The roll ends by hitting the belt. Reflect that impact immediately
-      // so the next motion goes upward, away from the surface.
-      bounceVel   = -ROLL_SPEED * BOUNCE_RESTITUTION;
-      phase       = 'bouncing';
-    }
-  } else { // bouncing: ballistic rotation with inelastic impacts
-    bounceVel += BOUNCE_GRAVITY;
-    bounceDelta += bounceVel;
+  currentPhase.update();
+}
 
-    // bounceDelta must stay <= 0. Positive values rotate the cube through the
-    // belt, so contact clamps the angle and reflects velocity with energy loss.
-    if (bounceDelta >= 0) {
-      bounceDelta = 0;
-      if (bounceVel < BOUNCE_STOP_SPEED) {
-        bounceVel = 0;
-        phase     = 'rolling';
-      } else {
-        bounceVel = -bounceVel * BOUNCE_RESTITUTION;
-      }
-    }
+function rollProgress() {
+  return rollAngle / (PI / 2);
+}
+
+function getCurrentPhase() {
+  let currentPhase = PHASES[phase];
+  if (!currentPhase) {
+    throw new Error(`Unknown phase: ${phase}`);
+  }
+  return currentPhase;
+}
+
+function transitionTo(nextPhase, payload = {}) {
+  let next = PHASES[nextPhase];
+  if (!next) {
+    throw new Error(`Unknown phase: ${nextPhase}`);
+  }
+
+  phase = nextPhase;
+  if (next.enter) {
+    next.enter(payload);
   }
 }
 
